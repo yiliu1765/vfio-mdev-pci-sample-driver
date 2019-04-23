@@ -161,4 +161,15 @@ config SAMPLE_VFS
 	  as mount API and statx().  Note that this is restricted to the x86
 	  arch whilst it accesses system calls that aren't yet in all arches.
 
+config SAMPLE_VFIO_MDEV_PCI
+	tristate "Sample driver for wrapping PCI device as a mdev"
+	depends on PCI && EVENTFD && VFIO_MDEV_DEVICE
+	select VFIO_VIRQFD
+	select IRQ_BYPASS_MANAGER
+	help
+	  Sample driver for wrapping a PCI device as a mdev. Once bound to
+	  this driver, device passthru should through mdev path.
+
+	  If you don't know what to do here, say N.
+
 endif # SAMPLES

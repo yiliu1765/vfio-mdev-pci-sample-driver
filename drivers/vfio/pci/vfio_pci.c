@@ -69,7 +69,8 @@ static unsigned int vfio_pci_set_vga_decode(void *opaque, bool single_vga)
 	unsigned char max_busnr;
 	unsigned int decodes;
 
-	if (single_vga || !vfio_vga_disabled() || pci_is_root_bus(pdev->bus))
+	if (single_vga || !vfio_vga_disabled(vdev) ||
+		pci_is_root_bus(pdev->bus))
 		return VGA_RSRC_NORMAL_IO | VGA_RSRC_NORMAL_MEM |
 		       VGA_RSRC_LEGACY_IO | VGA_RSRC_LEGACY_MEM;
 
@@ -273,7 +274,7 @@ static int vfio_pci_enable(struct vfio_pci_device *vdev)
 	if (!vdev->pci_saved_state)
 		pci_dbg(pdev, "%s: Couldn't store saved state\n", __func__);
 
-	if (likely(!nointxmask)) {
+	if (likely(!vdev->nointxmask)) {
 		if (vfio_pci_nointx(pdev)) {
 			pci_info(pdev, "Masking broken INTx support\n");
 			vdev->nointx = true;
@@ -310,7 +311,7 @@ static int vfio_pci_enable(struct vfio_pci_device *vdev)
 	} else
 		vdev->msix_bar = 0xFF;
 
-	if (!vfio_vga_disabled() && vfio_pci_is_vga(pdev))
+	if (!vfio_vga_disabled(vdev) && vfio_pci_is_vga(pdev))
 		vdev->has_vga = true;
 
 
@@ -436,7 +437,7 @@ out:
 
 	vfio_pci_try_bus_reset(vdev);
 
-	if (!disable_idle_d3)
+	if (!vdev->disable_idle_d3)
 		vfio_pci_set_power_state(vdev, PCI_D3hot);
 }
 
@@ -1304,6 +1305,11 @@ static int vfio_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	spin_lock_init(&vdev->irqlock);
 	mutex_init(&vdev->ioeventfds_lock);
 	INIT_LIST_HEAD(&vdev->ioeventfds_list);
+	vdev->nointxmask = nointxmask;
+#ifdef CONFIG_VFIO_PCI_VGA
+	vdev->disable_vga = disable_vga;
+#endif
+	vdev->disable_idle_d3 = disable_idle_d3;
 
 	ret = vfio_add_group_dev(&pdev->dev, &vfio_pci_ops, vdev);
 	if (ret) {
@@ -1328,7 +1334,7 @@ static int vfio_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 
 	vfio_pci_probe_power_state(vdev);
 
-	if (!disable_idle_d3) {
+	if (!vdev->disable_idle_d3) {
 		/*
 		 * pci-core sets the device power state to an unknown value at
 		 * bootup and after being removed from a driver.  The only
@@ -1359,7 +1365,7 @@ static void vfio_pci_remove(struct pci_dev *pdev)
 	kfree(vdev->region);
 	mutex_destroy(&vdev->ioeventfds_lock);
 
-	if (!disable_idle_d3)
+	if (!vdev->disable_idle_d3)
 		vfio_pci_set_power_state(vdev, PCI_D0);
 
 	kfree(vdev->pm_save);
@@ -1594,7 +1600,7 @@ put_devs:
 		if (!ret) {
 			tmp->needs_reset = false;
 
-			if (tmp != vdev && !disable_idle_d3)
+			if (tmp != vdev && !tmp->disable_idle_d3)
 				vfio_pci_set_power_state(tmp, PCI_D3hot);
 		}
 
@@ -1610,7 +1616,7 @@ static void __exit vfio_pci_cleanup(void)
 	vfio_pci_uninit_perm_bits();
 }
 
-static void __init vfio_pci_fill_ids(void)
+static void __init vfio_pci_fill_ids(char *ids)
 {
 	char *p, *id;
 	int rc;
@@ -1665,7 +1671,7 @@ static int __init vfio_pci_init(void)
 	if (ret)
 		goto out_driver;
 
-	vfio_pci_fill_ids();
+	vfio_pci_fill_ids(&ids[0]);
 
 	return 0;
 

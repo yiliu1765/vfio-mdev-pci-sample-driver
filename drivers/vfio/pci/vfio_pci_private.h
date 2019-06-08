@@ -135,6 +135,20 @@ struct vfio_pci_device {
 #define is_irq_none(vdev) (!(is_intx(vdev) || is_msi(vdev) || is_msix(vdev)))
 #define irq_is(vdev, type) (vdev->irq_type == type)
 
+static inline bool vfio_pci_is_vga(struct pci_dev *pdev)
+{
+	return (pdev->class >> 8) == PCI_CLASS_DISPLAY_VGA;
+}
+
+static inline bool vfio_vga_disabled(struct vfio_pci_device *vdev)
+{
+#ifdef CONFIG_VFIO_PCI_VGA
+	return vdev->disable_vga;
+#else
+	return true;
+#endif
+}
+
 extern void vfio_pci_refresh_config(struct vfio_pci_device *vdev,
 				bool nointxmask, bool disable_idle_d3);
 

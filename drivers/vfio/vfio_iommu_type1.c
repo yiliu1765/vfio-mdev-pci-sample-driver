@@ -1312,13 +1312,20 @@ static int vfio_mdev_attach_domain(struct device *dev, void *data)
 {
 	struct iommu_domain *domain = data;
 	struct device *iommu_device;
+	struct iommu_group *group;
 
 	iommu_device = vfio_mdev_get_iommu_device(dev);
 	if (iommu_device) {
 		if (iommu_dev_feature_enabled(iommu_device, IOMMU_DEV_FEAT_AUX))
 			return iommu_aux_attach_device(domain, iommu_device);
-		else
-			return iommu_attach_device(domain, iommu_device);
+		else {
+			group = iommu_group_get(iommu_device);
+			if (!group) {
+				WARN_ON(1);
+				return -EINVAL;
+			}
+			return iommu_attach_group(domain, group);
+		}
 	}
 
 	return -EINVAL;
@@ -1328,13 +1335,20 @@ static int vfio_mdev_detach_domain(struct device *dev, void *data)
 {
 	struct iommu_domain *domain = data;
 	struct device *iommu_device;
+	struct iommu_group *group;
 
 	iommu_device = vfio_mdev_get_iommu_device(dev);
 	if (iommu_device) {
 		if (iommu_dev_feature_enabled(iommu_device, IOMMU_DEV_FEAT_AUX))
 			iommu_aux_detach_device(domain, iommu_device);
-		else
-			iommu_detach_device(domain, iommu_device);
+		else {
+			group = iommu_group_get(iommu_device);
+			if (!group) {
+				WARN_ON(1);
+				return -EINVAL;
+			}
+			iommu_detach_group(domain, group);
+		}
 	}
 
 	return 0;

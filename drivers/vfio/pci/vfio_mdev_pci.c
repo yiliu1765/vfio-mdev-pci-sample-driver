@@ -107,19 +107,27 @@ struct vfio_mdev_pci {
 static int vfio_mdev_pci_create(struct kobject *kobj, struct mdev_device *mdev)
 {
 	struct device *pdev;
+	struct vfio_device *device;
 	struct vfio_mdev_pci_device *vmdev;
 	struct vfio_mdev_pci *pmdev;
 	int ret;
 
 	pdev = mdev_parent_dev(mdev);
-	vmdev = dev_get_drvdata(pdev);
+	device = vfio_device_get_from_dev(pdev);
+	vmdev = vfio_device_data(device);
 
-	if (atomic_dec_if_positive(&vmdev->avail) < 0)
-		return -ENOSPC;
+	if (atomic_dec_if_positive(&vmdev->avail) < 0) {
+		ret = -ENOSPC;
+		goto out;
+	}
 
+	pr_info("%s, available instance: %d\n",
+			__func__, atomic_read(&vmdev->avail));
 	pmdev = kzalloc(sizeof(struct vfio_mdev_pci), GFP_KERNEL);
-	if (!pmdev)
-		return -ENOMEM;
+	if (!pmdev) {
+		ret = -ENOMEM;
+		goto out;
+	}
 
 	pmdev->mdev = mdev;
 	pmdev->vdev = &vmdev->vdev;
@@ -130,10 +138,11 @@ static int vfio_mdev_pci_create(struct kobject *kobj, struct mdev_device *mdev)
 			__func__, dev_name(mdev_dev(mdev)), dev_name(pdev));
 		kfree(pmdev);
 		atomic_inc(&vmdev->avail);
-		return ret;
 	}
 
-	return 0;
+out:
+	vfio_device_put(device);
+	return ret;
 }
 
 static int vfio_mdev_pci_remove(struct mdev_device *mdev)
@@ -145,6 +154,8 @@ static int vfio_mdev_pci_remove(struct mdev_device *mdev)
 
 	kfree(pmdev);
 	atomic_inc(&vmdev->avail);
+	pr_info("%s, available instance: %d\n",
+			__func__, atomic_read(&vmdev->avail));
 	pr_info("%s, succeeded for mdev: %s\n", __func__,
 		     dev_name(mdev_dev(mdev)));
 
@@ -236,12 +247,65 @@ static ssize_t vfio_mdev_pci_write(struct mdev_device *mdev,
 	return vfio_pci_write(pmdev->vdev, (char __user *)buf, count, ppos);
 }
 
+static int vfio_pci_dummy_open(void *device_data)
+{
+	struct vfio_mdev_pci_device *vmdev =
+		(struct vfio_mdev_pci_device *) device_data;
+	pr_warn("Device %s is not viable for vfio-pci passthru, please follow"
+		" vfio-mdev passthru path as it has been wrapped as mdev!!!\n",
+					dev_name(&vmdev->vdev.pdev->dev));
+	return -ENODEV;
+}
+
+static void vfio_pci_dummy_release(void *device_data)
+{
+}
+
+long vfio_pci_dummy_ioctl(void *device_data,
+		   unsigned int cmd, unsigned long arg)
+{
+	return 0;
+}
+
+ssize_t vfio_pci_dummy_read(void *device_data, char __user *buf,
+			     size_t count, loff_t *ppos)
+{
+	return 0;
+}
+
+ssize_t vfio_pci_dummy_write(void *device_data, const char __user *buf,
+			      size_t count, loff_t *ppos)
+{
+	return 0;
+}
+
+int vfio_pci_dummy_mmap(void *device_data, struct vm_area_struct *vma)
+{
+	return 0;
+}
+
+void vfio_pci_dummy_request(void *device_data, unsigned int count)
+{
+}
+
+static const struct vfio_device_ops vfio_pci_dummy_ops = {
+	.name		= "vfio-pci",
+	.open		= vfio_pci_dummy_open,
+	.release	= vfio_pci_dummy_release,
+	.ioctl		= vfio_pci_dummy_ioctl,
+	.read		= vfio_pci_dummy_read,
+	.write		= vfio_pci_dummy_write,
+	.mmap		= vfio_pci_dummy_mmap,
+	.request	= vfio_pci_dummy_request,
+};
+
 static int vfio_mdev_pci_driver_probe(struct pci_dev *pdev,
 				       const struct pci_device_id *id)
 {
 	struct vfio_mdev_pci_device *vmdev;
 	struct vfio_pci_device *vdev;
 	const struct mdev_parent_ops *ops;
+	struct iommu_group *group;
 	int ret;
 
 	if (pdev->hdr_type != PCI_HEADER_TYPE_NORMAL)
@@ -259,6 +323,10 @@ static int vfio_mdev_pci_driver_probe(struct pci_dev *pdev,
 		pci_warn(pdev, "Cannot bind to PF with SR-IOV enabled\n");
 		return -EBUSY;
 	}
+
+	group = vfio_iommu_group_get(&pdev->dev);
+	if (!group)
+		return -EINVAL;
 
 	vmdev = kzalloc(sizeof(*vmdev), GFP_KERNEL);
 	if (!vmdev)
@@ -304,7 +372,12 @@ static int vfio_mdev_pci_driver_probe(struct pci_dev *pdev,
 #endif
 	vdev->disable_idle_d3 = disable_idle_d3;
 
-	pci_set_drvdata(pdev, vmdev);
+	ret = vfio_add_group_dev(&pdev->dev, &vfio_pci_dummy_ops, vmdev);
+	if (ret) {
+		vfio_iommu_group_put(group, &pdev->dev);
+		kfree(vmdev);
+		return ret;
+	}
 
 	ret = vfio_pci_reflck_attach(vdev);
 	if (ret) {
@@ -352,7 +425,7 @@ static void vfio_mdev_pci_driver_remove(struct pci_dev *pdev)
 
 	mdev_unregister_device(&pdev->dev);
 
-	vmdev = pci_get_drvdata(pdev);
+	vmdev = vfio_del_group_dev(&pdev->dev);
 	if (!vmdev)
 		return;
 

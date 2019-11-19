@@ -36,6 +36,13 @@
 	 (offset >= PCI_ROM_ADDRESS && offset < PCI_ROM_ADDRESS + 4))
 
 /*
+ * vfio_perm_bits_sem: prorects the shared perm_bits alloc/free
+ * vfio_pci_perm_bits_users: tracks the user of the shared perm_bits
+ */
+static DEFINE_SEMAPHORE(vfio_perm_bits_sem);
+static int vfio_pci_perm_bits_users;
+
+/*
  * Lengths of PCI Config Capabilities
  *   0: Removed from the user visible capability list
  *   FF: Variable length
@@ -995,7 +1002,7 @@ static int __init init_pci_ext_cap_pwr_perm(struct perm_bits *perm)
 /*
  * Initialize the shared permission tables
  */
-void vfio_pci_uninit_perm_bits(void)
+static void vfio_pci_uninit_perm_bits_internal(void)
 {
 	free_perm_bits(&cap_perms[PCI_CAP_ID_BASIC]);
 
@@ -1009,9 +1016,29 @@ void vfio_pci_uninit_perm_bits(void)
 	free_perm_bits(&ecap_perms[PCI_EXT_CAP_ID_PWR]);
 }
 
+void vfio_pci_uninit_perm_bits(void)
+{
+	down(&vfio_perm_bits_sem);
+
+	if (--vfio_pci_perm_bits_users > 0)
+		goto out;
+
+	vfio_pci_uninit_perm_bits_internal();
+
+out:
+	up(&vfio_perm_bits_sem);
+}
+
 int __init vfio_pci_init_perm_bits(void)
 {
 	int ret;
+
+	down(&vfio_perm_bits_sem);
+
+	if (++vfio_pci_perm_bits_users > 1) {
+		ret = 0;
+		goto out;
+	}
 
 	/* Basic config space */
 	ret = init_pci_cap_basic_perm(&cap_perms[PCI_CAP_ID_BASIC]);
@@ -1030,8 +1057,10 @@ int __init vfio_pci_init_perm_bits(void)
 	ecap_perms[PCI_EXT_CAP_ID_VNDR].writefn = vfio_raw_config_write;
 
 	if (ret)
-		vfio_pci_uninit_perm_bits();
+		vfio_pci_uninit_perm_bits_internal();
 
+out:
+	up(&vfio_perm_bits_sem);
 	return ret;
 }
 

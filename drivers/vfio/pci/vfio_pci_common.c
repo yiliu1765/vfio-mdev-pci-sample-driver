@@ -27,8 +27,13 @@
 #include <linux/vfio.h>
 #include <linux/vgaarb.h>
 #include <linux/nospec.h>
+#include <linux/vfio_pci_common.h>
 
 #include "vfio_pci_private.h"
+
+#define DRIVER_VERSION  "0.2"
+#define DRIVER_AUTHOR   "Alex Williamson <alex.williamson@redhat.com>"
+#define DRIVER_DESC     "VFIO PCI Common"
 
 /*
  * Our VGA arbiter participation is limited since we don't know anything
@@ -69,6 +74,7 @@ unsigned int vfio_pci_set_vga_decode(void *opaque, bool single_vga)
 
 	return decodes;
 }
+EXPORT_SYMBOL_GPL(vfio_pci_set_vga_decode);
 
 static void vfio_pci_probe_mmaps(struct vfio_pci_device *vdev)
 {
@@ -183,6 +189,7 @@ void vfio_pci_probe_power_state(struct vfio_pci_device *vdev)
 
 	vdev->needs_pm_restore = !(pmcsr & PCI_PM_CTRL_NO_SOFT_RESET);
 }
+EXPORT_SYMBOL_GPL(vfio_pci_probe_power_state);
 
 /*
  * pci_set_power_state() wrapper handling devices which perform a soft reset on
@@ -221,6 +228,7 @@ int vfio_pci_set_power_state(struct vfio_pci_device *vdev, pci_power_t state)
 
 	return ret;
 }
+EXPORT_SYMBOL_GPL(vfio_pci_set_power_state);
 
 int vfio_pci_enable(struct vfio_pci_device *vdev)
 {
@@ -328,6 +336,7 @@ disable_exit:
 	vfio_pci_disable(vdev);
 	return ret;
 }
+EXPORT_SYMBOL_GPL(vfio_pci_enable);
 
 void vfio_pci_disable(struct vfio_pci_device *vdev)
 {
@@ -427,6 +436,7 @@ out:
 	if (!vdev->disable_idle_d3)
 		vfio_pci_set_power_state(vdev, PCI_D3hot);
 }
+EXPORT_SYMBOL_GPL(vfio_pci_disable);
 
 void vfio_pci_refresh_config(struct vfio_pci_device *vdev,
 			bool nointxmask, bool disable_idle_d3)
@@ -434,6 +444,7 @@ void vfio_pci_refresh_config(struct vfio_pci_device *vdev,
 	vdev->nointxmask = nointxmask;
 	vdev->disable_idle_d3 = disable_idle_d3;
 }
+EXPORT_SYMBOL_GPL(vfio_pci_refresh_config);
 
 static int vfio_pci_get_irq_count(struct vfio_pci_device *vdev, int irq_type)
 {
@@ -618,6 +629,7 @@ int vfio_pci_register_dev_region(struct vfio_pci_device *vdev,
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(vfio_pci_register_dev_region);
 
 long vfio_pci_ioctl(void *device_data,
 		   unsigned int cmd, unsigned long arg)
@@ -1072,6 +1084,7 @@ hot_reset_release:
 
 	return -ENOTTY;
 }
+EXPORT_SYMBOL_GPL(vfio_pci_ioctl);
 
 static ssize_t vfio_pci_rw(void *device_data, char __user *buf,
 			   size_t count, loff_t *ppos, bool iswrite)
@@ -1113,6 +1126,7 @@ ssize_t vfio_pci_read(void *device_data, char __user *buf,
 
 	return vfio_pci_rw(device_data, buf, count, ppos, false);
 }
+EXPORT_SYMBOL_GPL(vfio_pci_read);
 
 ssize_t vfio_pci_write(void *device_data, const char __user *buf,
 			      size_t count, loff_t *ppos)
@@ -1122,6 +1136,7 @@ ssize_t vfio_pci_write(void *device_data, const char __user *buf,
 
 	return vfio_pci_rw(device_data, (char __user *)buf, count, ppos, true);
 }
+EXPORT_SYMBOL_GPL(vfio_pci_write);
 
 int vfio_pci_mmap(void *device_data, struct vm_area_struct *vma)
 {
@@ -1184,6 +1199,7 @@ int vfio_pci_mmap(void *device_data, struct vm_area_struct *vma)
 	return remap_pfn_range(vma, vma->vm_start, vma->vm_pgoff,
 			       req_len, vma->vm_page_prot);
 }
+EXPORT_SYMBOL_GPL(vfio_pci_mmap);
 
 void vfio_pci_request(void *device_data, unsigned int count)
 {
@@ -1205,6 +1221,7 @@ void vfio_pci_request(void *device_data, unsigned int count)
 
 	mutex_unlock(&vdev->igate);
 }
+EXPORT_SYMBOL_GPL(vfio_pci_request);
 
 static pci_ers_result_t vfio_pci_aer_err_detected(struct pci_dev *pdev,
 						  pci_channel_state_t state)
@@ -1234,9 +1251,10 @@ static pci_ers_result_t vfio_pci_aer_err_detected(struct pci_dev *pdev,
 	return PCI_ERS_RESULT_CAN_RECOVER;
 }
 
-const struct pci_error_handlers vfio_err_handlers = {
+const struct pci_error_handlers vfio_pci_err_handlers = {
 	.error_detected = vfio_pci_aer_err_detected,
 };
+EXPORT_SYMBOL_GPL(vfio_pci_err_handlers);
 
 static DEFINE_MUTEX(reflck_lock);
 
@@ -1303,6 +1321,7 @@ int vfio_pci_reflck_attach(struct vfio_pci_device *vdev)
 
 	return PTR_ERR_OR_ZERO(vdev->reflck);
 }
+EXPORT_SYMBOL_GPL(vfio_pci_reflck_attach);
 
 static void vfio_pci_reflck_release(struct kref *kref)
 {
@@ -1318,6 +1337,7 @@ void vfio_pci_reflck_put(struct vfio_pci_reflck *reflck)
 {
 	kref_put_mutex(&reflck->kref, vfio_pci_reflck_release, &reflck_lock);
 }
+EXPORT_SYMBOL_GPL(vfio_pci_reflck_put);
 
 struct vfio_devices {
 	struct vfio_device **devices;
@@ -1431,7 +1451,7 @@ put_devs:
 	kfree(devs.devices);
 }
 
-void __init vfio_pci_fill_ids(char *ids, struct pci_driver *driver)
+void vfio_pci_fill_ids(char *ids, struct pci_driver *driver)
 {
 	char *p, *id;
 	int rc;
@@ -1471,3 +1491,22 @@ void __init vfio_pci_fill_ids(char *ids, struct pci_driver *driver)
 				class, class_mask);
 	}
 }
+EXPORT_SYMBOL_GPL(vfio_pci_fill_ids);
+
+static int __init vfio_pci_common_init(void)
+{
+	/* Allocate shared config space permision data used by all devices */
+	return vfio_pci_init_perm_bits();
+}
+module_init(vfio_pci_common_init);
+
+static void __exit vfio_pci_common_exit(void)
+{
+	vfio_pci_uninit_perm_bits();
+}
+module_exit(vfio_pci_common_exit);
+
+MODULE_VERSION(DRIVER_VERSION);
+MODULE_LICENSE("GPL v2");
+MODULE_AUTHOR(DRIVER_AUTHOR);
+MODULE_DESCRIPTION(DRIVER_DESC);

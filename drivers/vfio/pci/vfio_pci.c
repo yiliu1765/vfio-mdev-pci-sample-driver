@@ -225,36 +225,26 @@ static struct pci_driver vfio_pci_driver = {
 	.id_table	= NULL, /* only dynamic ids */
 	.probe		= vfio_pci_probe,
 	.remove		= vfio_pci_remove,
-	.err_handler	= &vfio_err_handlers,
+	.err_handler	= &vfio_pci_err_handlers,
 };
 
 static void __exit vfio_pci_cleanup(void)
 {
 	pci_unregister_driver(&vfio_pci_driver);
-	vfio_pci_uninit_perm_bits();
 }
 
 static int __init vfio_pci_init(void)
 {
 	int ret;
 
-	/* Allocate shared config space permision data used by all devices */
-	ret = vfio_pci_init_perm_bits();
-	if (ret)
-		return ret;
-
 	/* Register and scan for devices */
 	ret = pci_register_driver(&vfio_pci_driver);
 	if (ret)
-		goto out_driver;
+		return ret;
 
 	vfio_pci_fill_ids(ids, &vfio_pci_driver);
 
 	return 0;
-
-out_driver:
-	vfio_pci_uninit_perm_bits();
-	return ret;
 }
 
 module_init(vfio_pci_init);
